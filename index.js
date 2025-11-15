@@ -1,84 +1,57 @@
 require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
-const helmet = require('helmet');
-const cors = require('cors');
-const rateLimit = require('express-rate-limit');
-
-// Importar módulos do bot
-const { initializeBot } = require('./src/bot/handlers/start');
-const { setupWebhook } = require('./src/webhooks/telegram');
-const { setupPixIntegraWebhook } = require('./src/webhooks/pixintegra');
-const { initDatabase } = require('./src/database/models/Order');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middlewares de segurança
-app.use(helmet());
-app.use(cors());
+// Middlewares básicos
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 100 // limite de 100 requisições por IP
-});
-app.use(limiter);
 
 // Health check endpoint
 app.get('/', (req, res) => {
   res.json({ 
     status: 'online', 
-    service: 'Telegram Bot SMS/PIX',
-    timestamp: new Date().toISOString()
+    service: 'Telegram Bot SMS_PIX',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0'
   });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', uptime: process.uptime() });
+  res.json({ 
+    status: 'healthy', 
+    uptime: process.uptime(),
+    memory: process.memoryUsage()
+  });
 });
 
-// Inicialização
-async function startServer() {
-  try {
-    console.log('🚀 Iniciando servidor...');
+// Webhook endpoints (placeholders)
+app.post('/webhook/telegram', (req, res) => {
+  console.log('Telegram webhook received:', req.body);
+  res.status(200).json({ ok: true });
+});
 
-    // Inicializar banco de dados
-    await initDatabase();
-    console.log('✅ Banco de dados inicializado');
+app.post('/webhook/pixintegra', (req, res) => {
+  console.log('PixIntegra webhook received:', req.body);
+  res.status(200).json({ ok: true });
+});
 
-    // Configurar webhooks
-    setupWebhook(app);
-    setupPixIntegraWebhook(app);
-    console.log('✅ Webhooks configurados');
+// Iniciar servidor
+app.listen(PORT, () => {
+  console.log(`✅ Servidor rodando na porta ${PORT}`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🤔 Bot Token: ${process.env.TELEGRAM_BOT_TOKEN ? 'Configurado ✒' : 'FALTANDO ✗'}`);
+  console.log(`💾 Database: ${process.env.DATABASE_URL ? 'Configurado ✓' : 'FALTANDO ✗'}`);
+});
 
-    // Inicializar bot
-    await initializeBot();
-    console.log('✅ Bot Telegram inicializado');
-
-    // Iniciar servidor
-    app.listen(PORT, () => {
-      console.log(`✅ Servidor rodando na porta ${PORT}`);
-      console.log(`🌍 Environment: ${process.env.NODE_ENV}`);
-    });
-
-  } catch (error) {
-    console.error('❌ Erro ao iniciar servidor:', error);
-    process.exit(1);
-  }
-}
-
-// Tratamento de erros não capturados
+// Tratamento de erros
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  console.error('Unhandled Rejection:', reason);
 });
 
 process.on('uncaughtException', (error) => {
   console.error('Uncaught Exception:', error);
   process.exit(1);
 });
-
-// Iniciar
-startServer();
