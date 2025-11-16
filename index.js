@@ -1,56 +1,56 @@
 require('dotenv').config();
 const express = require('express');
-const { Telegraf } = require('telegraf');
+const {Télégrafo} = require('telégrafo');
 const bodyParser = require('body-parser');
 const axios = require('axios');
 const { Sequelize, DataTypes } = require('sequelize');
 
-// --- PostgreSQL/Sequelize Setup ---
+// --- Configuração do PostgreSQL/Sequelize ---
 const sequelize = new Sequelize(process.env.DATABASE_URL, {
-  dialect: 'postgres',
-  logging: false
+  dialeto: 'postgres',
+  registro: falso
 });
 
 const User = sequelize.define('User', {
   telegram_id: { type: DataTypes.STRING, unique: true },
-  username: DataTypes.STRING,
+  nome de usuário: DataTypes.STRING,
   first_name: DataTypes.STRING,
-  balance: { type: DataTypes.FLOAT, defaultValue: 0 }
+  saldo: { tipo: DataTypes.FLOAT, valor padrão: 0 }
 }, { tableName: 'users', timestamps: false });
 
 const Transaction = sequelize.define('Transaction', {
   telegram_id: DataTypes.STRING,
-  type: DataTypes.STRING,
-  amount: DataTypes.FLOAT,
+  tipo: DataTypes.STRING,
+  quantidade: DataTypes.FLOAT,
   status: DataTypes.STRING,
-  details: DataTypes.JSONB
-}, { tableName: 'transactions', timestamps: true });
+  Detalhes: DataTypes.JSONB
+}, { tableName: 'transações', timestamps: true });
 
 // --- Express + Telegram ---
 const app = express();
 app.use(bodyParser.json());
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
-// Utility
-async function getOrCreateUser(ctx) {
-  let user = await User.findOne({ where: { telegram_id: ctx.from.id }});
-  if (!user) {
-    user = await User.create({
-      telegram_id: ctx.from.id,
-      username: ctx.from.username,
-      first_name: ctx.from.first_name,
-      balance: 0
+// Utilitário
+função assíncrona getOrCreateUser(ctx) {
+  let user = await User.findOne({ where: { telegram_id: String(ctx.from.id) }});
+  se (!usuário) {
+    usuário = await User.create({
+      telegram_id: String(ctx.from.id),
+      nome de usuário: ctx.from.username,
+      primeiro_nome: ctx.from.primeiro_nome,
+      saldo: 0
     });
   }
-  return user;
+  retornar usuário;
 }
 
-// --- COMANDOS ----------------------------------------------------------------------------------------
+// --- COMANDOS --------------------------------------------------------------------------------------------
 
 bot.start(async (ctx) => {
-  await getOrCreateUser(ctx);
-  ctx.reply(
-    '🤖 Bem-vindo!\n\n' +
+  aguarde getOrCreateUser(ctx);
+  ctx.responder(
+    'ðŸ¤– Bem-vindo!\n\n' +
     'Comandos disponíveis:\n' +
     '/saldo - ver saldo\n' +
     '/adicionar_saldo - adicionar saldo via PIX\n' +
@@ -61,41 +61,41 @@ bot.start(async (ctx) => {
 
 bot.command('saldo', async (ctx) => {
   let user = await getOrCreateUser(ctx);
-  ctx.reply(`💰 Seu saldo: R$${user.balance.toFixed(2)}`);
+  ctx.reply(`ðŸ'° Seu saldo: R$${user.balance.toFixed(2)}`);
 });
 
-// --- ADICIONAR SALDO VIA PIX ------------------------------------------------------------------------
+// --- ADICIONAR SALDO VIA PIX -----------------------------------------------------------------------------------
 
 bot.command('adicionar_saldo', async (ctx) => {
   ctx.reply('Digite o valor em R$ que deseja adicionar:');
 
   bot.once('text', async (msgCtx) => {
-    if (!/^[0-9]+$/.test(msgCtx.message.text))
+    se (!/^[0-9]+$/.test(msgCtx.message.text))
       return msgCtx.reply('Digite apenas números.');
 
-    let valor = parseFloat(msgCtx.message.text);
+    deixe valor = parseFloat(msgCtx.message.text);
 
     let response = await axios.post(`${process.env.PIXINTEGRA_BASE_URL}/charge`, {
       apiKey: process.env.PIXINTEGRA_API_TOKEN,
-      amount: valor
+      quantidade: valor
     });
 
-    await Transaction.create({
-      telegram_id: msgCtx.from.id,
-      type: 'pix',
-      amount: valor,
-      status: 'pending',
-      details: { pixid: response.data.id }
+    aguarde Transaction.create({
+      telegram_id: String(msgCtx.from.id),
+      tipo: 'pix',
+      quantidade: valor,
+      status: 'pendente',
+      detalhes: { pixid: response.data.id }
     });
 
-    msgCtx.reply(
+    msgCtx.responder(
       `Pague o Pix para adicionar saldo:\n\n` +
       (response.data.copyPaste || response.data.qrCodeText || 'QR CODE INDISPONÍVEL')
     );
   });
 });
 
-// --- COMPRAR SMS ------------------------------------------------------------------------
+// --- COMPRAR SMS ----------------------------------------------------------------------------
 
 bot.command('sms', async (ctx) => {
   ctx.reply('Escolha o serviço:\n1. WhatsApp\n2. Telegram\n3. Instagram\n4. Facebook\n5. Google');
@@ -110,23 +110,23 @@ bot.command('sms', async (ctx) => {
       let country = paisCtx.message.text;
       let user = await getOrCreateUser(ctx);
 
-      let valor = 2; // valor fixo só para exemplo
+      seja valor = 2; // valor fixo só para exemplo
 
-      if (user.balance < valor)
-        return paisCtx.reply('⚠️ Saldo insuficiente. Use /adicionar_saldo');
+      se (saldo do usuário < valor)
+        return paisCtx.reply('âš ï¸ Saldo insuficiente. Use /adicionar_saldo');
 
-      paisCtx.reply(`Confirmar compra de ${servico}? (Sim/Nao)`);
+      paisCtx.reply(`Confirmar compra de ${serviço}? (Sim/Nao)`);
 
-      bot.hears(/^sim$/i, async (confCtx) => {
-        user.balance -= valor;
-        await user.save();
+      bot.ouve(/^sim$/i, async (confCtx) => {
+        saldo do usuário -= valor;
+        aguarde user.save();
 
-        await Transaction.create({
-          telegram_id: ctx.from.id,
-          type: 'sms',
-          amount: valor,
-          status: 'done',
-          details: { servico, country }
+        aguarde Transaction.create({
+          telegram_id: String(ctx.from.id),
+          tipo: 'sms',
+          quantidade: valor,
+          status: 'concluído',
+          detalhes: { serviço, país }
         });
 
         let smsRes = await axios.get(
@@ -135,21 +135,21 @@ bot.command('sms', async (ctx) => {
 
         let parts = smsRes.data.split(':');
         let activationId = parts[1];
-        let numero = parts[2];
+        seja numero = partes[2];
 
         confCtx.reply(`Número adquirido: ${numero}`);
 
-        let done = false;
+        seja feito = falso;
 
-        for (let i = 0; i < 12; i++) {
+        para (seja i = 0; i < 12; i++) {
           let res2 = await axios.get(
             `${process.env.SMS_ACTIVATE_BASE_URL}/stubs/handler_api.php?api_key=${process.env.SMS_ACTIVATE_API_KEY}&action=getStatus&id=${activationId}`
           );
 
-          if (res2.data.includes('STATUS_OK')) {
+          se (res2.data.include('STATUS_OK')) {
             confCtx.reply(`Código SMS: ${res2.data.split(':')[1]}`);
-            done = true;
-            break;
+            feito = verdadeiro;
+            quebrar;
           }
 
           await new Promise((r) => setTimeout(r, 5000));
@@ -161,7 +161,7 @@ bot.command('sms', async (ctx) => {
   });
 });
 
-// --- COMPRAR SEGUIDORES ------------------------------------------------------------------------
+// --- COMPRAR SEGUIDORES ----------------------------------------------------------------------------
 
 bot.command('seguidores', async (ctx) => {
   ctx.reply('Plataforma:\n1. Instagram\n2. TikTok\n3. YouTube\n4. Twitter\n5. Facebook');
@@ -170,43 +170,43 @@ bot.command('seguidores', async (ctx) => {
     const plataforma =
       ['instagram', 'tiktok', 'youtube', 'twitter', 'facebook'][parseInt(msgCtx.message.text) - 1];
 
-    ctx.reply('Digite o username sem @');
+    ctx.reply('Digite o nome de usuário sem @');
 
-    bot.once('text', async (usuCtx) => {
+    bot.once('texto', async (usuCtx) => {
       let username = usuCtx.message.text.replace('@', '');
 
-      ctx.reply('Quantos seguidores deseja?');
+      ctx.reply('Quantos seguidores desejam?');
 
-      bot.once('text', async (qtdCtx) => {
+      bot.once('texto', async (qtdCtx) => {
         let qtd = parseInt(qtdCtx.message.text);
-        let valor = qtd * 0.05;
+        seja valor = qtd * 0,05;
 
         let user = await getOrCreateUser(ctx);
 
-        if (user.balance < valor)
-          return qtdCtx.reply('⚠️ Saldo insuficiente.');
+        se (saldo do usuário < valor)
+          return qtdCtx.reply('âš ï¸ Saldo insuficiente.');
 
         qtdCtx.reply(`Confirmar compra? (Sim/Nao)`);
 
-        bot.hears(/^sim$/i, async (confCtx) => {
-          user.balance -= valor;
-          await user.save();
+        bot.ouve(/^sim$/i, async (confCtx) => {
+          saldo do usuário -= valor;
+          aguarde user.save();
 
-          await Transaction.create({
-            telegram_id: ctx.from.id,
-            type: 'seguidores',
-            amount: valor,
-            status: 'done',
-            details: { plataforma, username, qtd }
+          aguarde Transaction.create({
+            telegram_id: String(ctx.from.id),
+            tipo: 'seguidores',
+            quantidade: valor,
+            status: 'concluído',
+            detalhes: { plataforma, nome de usuário, citação }
           });
 
-          await axios.post(
+          aguarde axios.post(
             `${process.env.APEX_BASE_URL}${process.env.APEX_CREATE_ORDER_PATH}`,
             {
-              key: process.env.APEX_API_KEY,
-              service: plataforma,
-              link: username,
-              quantity: qtd
+              chave: process.env.APEX_API_KEY,
+              serviço: plataforma,
+              link: nome de usuário,
+              quantidade: qtd
             }
           );
 
@@ -222,23 +222,23 @@ bot.command('seguidores', async (ctx) => {
 app.post('/webhook/pixintegra', async (req, res) => {
   const { pixid, status } = req.body;
 
-  if (status === 'paid' || status === 'approved') {
+  se (status === 'pago' || status === 'aprovado') {
     let tx = await Transaction.findOne({
-      where: { 'details.pixid': pixid, status: 'pending' }
+      onde: { 'details.pixid': pixid, status: 'pending' }
     });
 
-    if (tx) {
-      tx.status = 'paid';
-      await tx.save();
+    se (tx) {
+      tx.status = 'pago';
+      aguarde tx.save();
 
       let user = await User.findOne({ where: { telegram_id: tx.telegram_id }});
 
-      if (user) {
-        user.balance += tx.amount;
-        await user.save();
+      se (usuário) {
+        saldo do usuário += valor da transação;
+        aguarde user.save();
 
-        await bot.telegram.sendMessage(
-          user.telegram_id,
+        aguarde bot.telegram.sendMessage(
+          usuário.telegram_id,
           `Pix confirmado! Novo saldo: R$${user.balance.toFixed(2)}`
         );
       }
@@ -248,16 +248,16 @@ app.post('/webhook/pixintegra', async (req, res) => {
   res.json({ ok: true });
 });
 
-// --- Health + Start ------------------------------------------------------------------------
+// --- Saúde + Iniciar ------------------------------------------------------------------------
 
 app.get('/health', (req, res) => res.json({
-  status: 'healthy',
-  uptime: process.uptime()
+  status: 'saudável',
+  tempo de atividade: process.uptime()
 }));
 
 app.listen(process.env.PORT, async () => {
-  await sequelize.sync();
-  bot.launch();
+  aguarde sequelize.sync();
+  bot.lançar();
   console.log(`Servidor rodando na porta ${process.env.PORT}`);
 });
 
