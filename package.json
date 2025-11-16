@@ -1,7 +1,7 @@
 {
   "name": "telegram-bot-sms-pix",
   "version": "1.0.0",
-  "description": "Bot Telegram aut\u00f4nomo para venda de cr\u00e9ditos SMS e seguidores com pagamento PIX autom\u00e1tico",
+  "description": "Bot Telegram autÃ´nomo para venda de crÃ©ditos SMS e seguidores com pagamento PIX automÃ¡tico",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -19,7 +19,6 @@
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
-    "node-telegram-bot-api": "^0.64.0",
     "axios": "^1.6.0",
     "pg": "^8.11.3",
     "pg-hstore": "^2.3.4",
@@ -30,7 +29,8 @@
     "helmet": "^7.1.0",
     "express-rate-limit": "^7.1.5",
     "jsonwebtoken": "^9.0.2",
-    "crypto": "^1.0.1"
+    "crypto": "^1.0.1",
+    "telegraf": "^4.15.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
