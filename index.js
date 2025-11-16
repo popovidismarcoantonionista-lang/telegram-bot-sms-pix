@@ -1,191 +1,265 @@
 require('dotenv').config();
 const express = require('express');
+const { Telegraf } = require('telegraf');
 const bodyParser = require('body-parser');
-const TelegramBot = require('node-telegram-bot-api');
+const axios = require('axios');
+const { Sequelize, DataTypes } = require('sequelize');
 
+// --- PostgreSQL/Sequelize Setup ---
+const sequelize = new Sequelize(process.env.DATABASE_URL, {
+  dialect: 'postgres',
+  logging: false
+});
+
+const User = sequelize.define('User', {
+  telegram_id: { type: DataTypes.STRING, unique: true },
+  username: DataTypes.STRING,
+  first_name: DataTypes.STRING,
+  balance: { type: DataTypes.FLOAT, defaultValue: 0 }
+}, { tableName: 'users', timestamps: false });
+
+const Transaction = sequelize.define('Transaction', {
+  telegram_id: DataTypes.STRING,
+  type: DataTypes.STRING,
+  amount: DataTypes.FLOAT,
+  status: DataTypes.STRING,
+  details: DataTypes.JSONB
+}, { tableName: 'transactions', timestamps: true });
+
+// --- Express + Telegram ---
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Middlewares
 app.use(bodyParser.json());
+const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
-// Configurar bot do Telegram
-const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN);
+// Utility
+async function getOrCreateUser(ctx) {
+  let user = await User.findOne({ where: { telegram_id: ctx.from.id }});
+  if (!user) {
+    user = await User.create({
+      telegram_id: ctx.from.id,
+      username: ctx.from.username,
+      first_name: ctx.from.first_name,
+      balance: 0
+    });
+  }
+  return user;
+}
 
-// Mensagens
-const messages = {
-  start: `🤖 *Bem-vindo ao Bot SMS/PIX!*
+// --- COMANDOS ----------------------------------------------------------------------------------------
 
-Olá! Eu sou seu assistente para compra de:
-📱 *Números SMS temporários* (SMS-Activate)
-👥 *Seguidores para redes sociais* (Apex Seguidores)
-💰 *Pagamento via PIX* (PixIntegra)
-
-*Comandos disponíveis:*
-/start - Iniciar o bot
-/sms - Comprar números SMS
-/seguidores - Comprar seguidores
-/saldo - Ver seu saldo
-/ajuda - Obter ajuda
-
-_Escolha uma opção acima para começar!_`,
-
-  sms: `📱 *Comprar Números SMS*
-
-Você pode comprar números temporários para receber SMS de verificação.
-
-*Serviços disponíveis:*
-- WhatsApp
-- Telegram
-- Instagram
-- Facebook
-- Google
-- E muito mais!
-
-_Em breve: sistema completo de compra_`,
-
-  seguidores: `👥 *Comprar Seguidores*
-
-Aumente seus seguidores nas redes sociais!
-
-*Plataformas disponíveis:*
-- Instagram
-- TikTok
-- YouTube
-- Twitter/X
-- Facebook
-
-_Em breve: sistema completo de compra_`,
-
-  saldo: `💰 *Seu Saldo*
-
-Saldo atual: R$ 0,00
-
-Para adicionar saldo, faça um pagamento via PIX.
-
-_Sistema de pagamento em desenvolvimento_`,
-
-  ajuda: `ℹ️ *Ajuda*
-
-*Como usar o bot:*
-1️⃣ Use /sms para comprar números
-2️⃣ Use /seguidores para seguidores
-3️⃣ Use /saldo para ver seu crédito
-
-*Precisa de suporte?*
-Entre em contato com o administrador.
-
-*Status do sistema:*
-✅ Bot online
-✅ Webhooks ativos
-⚠️ Pagamentos em desenvolvimento`
-};
-
-// Comandos do bot
-bot.onText(/\/start/, (msg) => {
-  const chatId = msg.chat.id;
-  bot.sendMessage(chatId, messages.start, { parse_mode: 'Markdown' });
-});
-
-bot.onText(/\/sms/, (msg) => {
-  const chatId = msg.chat.id;
-  bot.sendMessage(chatId, messages.sms, { parse_mode: 'Markdown' });
-});
-
-bot.onText(/\/seguidores/, (msg) => {
-  const chatId = msg.chat.id;
-  bot.sendMessage(chatId, messages.seguidores, { parse_mode: 'Markdown' });
-});
-
-bot.onText(/\/saldo/, (msg) => {
-  const chatId = msg.chat.id;
-  bot.sendMessage(chatId, messages.saldo, { parse_mode: 'Markdown' });
-});
-
-bot.onText(/\/ajuda/, (msg) => {
-  const chatId = msg.chat.id;
-  bot.sendMessage(chatId, messages.ajuda, { parse_mode: 'Markdown' });
-});
-
-// Mensagens de texto normal
-bot.on('message', (msg) => {
-  if (!msg.text || msg.text.startsWith('/')) return;
-
-  const chatId = msg.chat.id;
-  bot.sendMessage(chatId, 
-    `Olá! 👋\n\nRecebi sua mensagem: "${msg.text}"\n\nUse /start para ver os comandos disponíveis.`
+bot.start(async (ctx) => {
+  await getOrCreateUser(ctx);
+  ctx.reply(
+    '🤖 Bem-vindo!\n\n' +
+    'Comandos disponíveis:\n' +
+    '/saldo - ver saldo\n' +
+    '/adicionar_saldo - adicionar saldo via PIX\n' +
+    '/sms - comprar SMS\n' +
+    '/seguidores - comprar seguidores'
   );
 });
 
-// Health check endpoints
-app.get('/', (req, res) => {
-  res.json({ 
-    status: 'online', 
-    service: 'Telegram Bot SMS & Seguidores',
-    bot_active: true,
-    timestamp: new Date().toISOString(),
-    version: '2.0.0'
+bot.command('saldo', async (ctx) => {
+  let user = await getOrCreateUser(ctx);
+  ctx.reply(`💰 Seu saldo: R$${user.balance.toFixed(2)}`);
+});
+
+// --- ADICIONAR SALDO VIA PIX ------------------------------------------------------------------------
+
+bot.command('adicionar_saldo', async (ctx) => {
+  ctx.reply('Digite o valor em R$ que deseja adicionar:');
+
+  bot.once('text', async (msgCtx) => {
+    if (!/^[0-9]+$/.test(msgCtx.message.text))
+      return msgCtx.reply('Digite apenas números.');
+
+    let valor = parseFloat(msgCtx.message.text);
+
+    let response = await axios.post(`${process.env.PIXINTEGRA_BASE_URL}/charge`, {
+      apiKey: process.env.PIXINTEGRA_API_TOKEN,
+      amount: valor
+    });
+
+    await Transaction.create({
+      telegram_id: msgCtx.from.id,
+      type: 'pix',
+      amount: valor,
+      status: 'pending',
+      details: { pixid: response.data.id }
+    });
+
+    msgCtx.reply(
+      `Pague o Pix para adicionar saldo:\n\n` +
+      (response.data.copyPaste || response.data.qrCodeText || 'QR CODE INDISPONÍVEL')
+    );
   });
 });
 
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
-    uptime: process.uptime(),
-    memory: process.memoryUsage(),
-    bot_token: process.env.TELEGRAM_BOT_TOKEN ? 'configured' : 'missing',
-    database: process.env.DATABASE_URL ? 'configured' : 'missing'
+// --- COMPRAR SMS ------------------------------------------------------------------------
+
+bot.command('sms', async (ctx) => {
+  ctx.reply('Escolha o serviço:\n1. WhatsApp\n2. Telegram\n3. Instagram\n4. Facebook\n5. Google');
+
+  bot.once('text', async (msgCtx) => {
+    const servico =
+      ['whatsapp', 'telegram', 'instagram', 'facebook', 'google'][parseInt(msgCtx.message.text) - 1];
+
+    ctx.reply('Qual país? Exemplo: 6 = Brasil');
+
+    bot.once('text', async (paisCtx) => {
+      let country = paisCtx.message.text;
+      let user = await getOrCreateUser(ctx);
+
+      let valor = 2; // valor fixo só para exemplo
+
+      if (user.balance < valor)
+        return paisCtx.reply('⚠️ Saldo insuficiente. Use /adicionar_saldo');
+
+      paisCtx.reply(`Confirmar compra de ${servico}? (Sim/Nao)`);
+
+      bot.hears(/^sim$/i, async (confCtx) => {
+        user.balance -= valor;
+        await user.save();
+
+        await Transaction.create({
+          telegram_id: ctx.from.id,
+          type: 'sms',
+          amount: valor,
+          status: 'done',
+          details: { servico, country }
+        });
+
+        let smsRes = await axios.get(
+          `${process.env.SMS_ACTIVATE_BASE_URL}/stubs/handler_api.php?api_key=${process.env.SMS_ACTIVATE_API_KEY}&action=getNumber&service=${servico}&country=${country}`
+        );
+
+        let parts = smsRes.data.split(':');
+        let activationId = parts[1];
+        let numero = parts[2];
+
+        confCtx.reply(`Número adquirido: ${numero}`);
+
+        let done = false;
+
+        for (let i = 0; i < 12; i++) {
+          let res2 = await axios.get(
+            `${process.env.SMS_ACTIVATE_BASE_URL}/stubs/handler_api.php?api_key=${process.env.SMS_ACTIVATE_API_KEY}&action=getStatus&id=${activationId}`
+          );
+
+          if (res2.data.includes('STATUS_OK')) {
+            confCtx.reply(`Código SMS: ${res2.data.split(':')[1]}`);
+            done = true;
+            break;
+          }
+
+          await new Promise((r) => setTimeout(r, 5000));
+        }
+
+        if (!done) confCtx.reply('Tempo esgotado para receber o código.');
+      });
+    });
   });
 });
 
-// Webhook do Telegram
-app.post('/webhook/telegram', (req, res) => {
-  console.log('📨 Webhook recebido:', JSON.stringify(req.body, null, 2));
-  bot.processUpdate(req.body);
-  res.sendStatus(200);
+// --- COMPRAR SEGUIDORES ------------------------------------------------------------------------
+
+bot.command('seguidores', async (ctx) => {
+  ctx.reply('Plataforma:\n1. Instagram\n2. TikTok\n3. YouTube\n4. Twitter\n5. Facebook');
+
+  bot.once('text', async (msgCtx) => {
+    const plataforma =
+      ['instagram', 'tiktok', 'youtube', 'twitter', 'facebook'][parseInt(msgCtx.message.text) - 1];
+
+    ctx.reply('Digite o username sem @');
+
+    bot.once('text', async (usuCtx) => {
+      let username = usuCtx.message.text.replace('@', '');
+
+      ctx.reply('Quantos seguidores deseja?');
+
+      bot.once('text', async (qtdCtx) => {
+        let qtd = parseInt(qtdCtx.message.text);
+        let valor = qtd * 0.05;
+
+        let user = await getOrCreateUser(ctx);
+
+        if (user.balance < valor)
+          return qtdCtx.reply('⚠️ Saldo insuficiente.');
+
+        qtdCtx.reply(`Confirmar compra? (Sim/Nao)`);
+
+        bot.hears(/^sim$/i, async (confCtx) => {
+          user.balance -= valor;
+          await user.save();
+
+          await Transaction.create({
+            telegram_id: ctx.from.id,
+            type: 'seguidores',
+            amount: valor,
+            status: 'done',
+            details: { plataforma, username, qtd }
+          });
+
+          await axios.post(
+            `${process.env.APEX_BASE_URL}${process.env.APEX_CREATE_ORDER_PATH}`,
+            {
+              key: process.env.APEX_API_KEY,
+              service: plataforma,
+              link: username,
+              quantity: qtd
+            }
+          );
+
+          confCtx.reply('Pedido enviado com sucesso!');
+        });
+      });
+    });
+  });
 });
 
-// Webhook do PixIntegra
-app.post('/webhook/pixintegra', (req, res) => {
-  console.log('💰 PixIntegra webhook:', JSON.stringify(req.body, null, 2));
-  res.status(200).json({ ok: true });
-});
+// --- WEBHOOK PIXINTEGRA ------------------------------------------------------------------------
 
-// Iniciar servidor
-app.listen(PORT, async () => {
-  console.log(`✅ Servidor rodando na porta ${PORT}`);
-  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🤖 Bot Token: ${process.env.TELEGRAM_BOT_TOKEN ? 'Configurado ✓' : 'FALTANDO ✗'}`);
-  console.log(`💾 Database: ${process.env.DATABASE_URL ? 'Configurado ✓' : 'FALTANDO ✗'}`);
+app.post('/webhook/pixintegra', async (req, res) => {
+  const { pixid, status } = req.body;
 
-  // Configurar webhook
-  if (process.env.TELEGRAM_WEBHOOK_URL) {
-    try {
-      await bot.setWebHook(process.env.TELEGRAM_WEBHOOK_URL);
-      console.log(`🔗 Webhook configurado: ${process.env.TELEGRAM_WEBHOOK_URL}`);
-    } catch (error) {
-      console.error('❌ Erro ao configurar webhook:', error.message);
+  if (status === 'paid' || status === 'approved') {
+    let tx = await Transaction.findOne({
+      where: { 'details.pixid': pixid, status: 'pending' }
+    });
+
+    if (tx) {
+      tx.status = 'paid';
+      await tx.save();
+
+      let user = await User.findOne({ where: { telegram_id: tx.telegram_id }});
+
+      if (user) {
+        user.balance += tx.amount;
+        await user.save();
+
+        await bot.telegram.sendMessage(
+          user.telegram_id,
+          `Pix confirmado! Novo saldo: R$${user.balance.toFixed(2)}`
+        );
+      }
     }
-  } else {
-    console.warn('⚠️  TELEGRAM_WEBHOOK_URL não configurado');
   }
+
+  res.json({ ok: true });
 });
 
-// Tratamento de erros
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection:', reason);
+// --- Health + Start ------------------------------------------------------------------------
+
+app.get('/health', (req, res) => res.json({
+  status: 'healthy',
+  uptime: process.uptime()
+}));
+
+app.listen(process.env.PORT, async () => {
+  await sequelize.sync();
+  bot.launch();
+  console.log(`Servidor rodando na porta ${process.env.PORT}`);
 });
 
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
-  process.exit(1);
-});
-
-// Tratamento de erros do bot
-bot.on('polling_error', (error) => {
-  console.error('❌ Bot polling error:', error);
-});
-
-bot.on('webhook_error', (error) => {
-  console.error('❌ Bot webhook error:', error);
-});
+process.on('unhandledRejection', e => console.error(e));
+process.on('uncaughtException', e => console.error(e));
