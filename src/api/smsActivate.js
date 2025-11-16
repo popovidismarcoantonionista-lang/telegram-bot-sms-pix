@@ -9,9 +9,6 @@ const smsClient = axios.create({
   timeout: 30000
 });
 
-/**
- * Obtém saldo da conta
- */
 async function getBalance() {
   try {
     const response = await smsClient.get('/getBalance.php', {
@@ -25,38 +22,11 @@ async function getBalance() {
     }
     throw new Error('Invalid API response');
   } catch (error) {
-    logger.error('Error getting SMS-Activate balance', { error: error.message });
+    logger.error('Error getting balance', { error: error.message });
     throw error;
   }
 }
 
-/**
- * Obtém preço de um serviço em um país
- */
-async function getPrice(country, service) {
-  try {
-    const response = await smsClient.get('/getPrices.php', {
-      params: { api_key: SMS_API_KEY, service, country }
-    });
-
-    if (typeof response.data === 'object') {
-      return {
-        country,
-        service,
-        cost: parseFloat(response.data[country]?.[service]?.cost || 0),
-        count: response.data[country]?.[service]?.count || 0
-      };
-    }
-    throw new Error('Invalid price response');
-  } catch (error) {
-    logger.error('Error getting SMS price', { country, service, error: error.message });
-    throw error;
-  }
-}
-
-/**
- * Compra um número de SMS
- */
 async function getNumber(country, service) {
   try {
     const response = await smsClient.get('/getNumber.php', {
@@ -65,42 +35,25 @@ async function getNumber(country, service) {
 
     if (typeof response.data === 'string' && response.data.startsWith('ACCESS_NUMBER')) {
       const parts = response.data.split(':');
-      const result = {
+      return {
         activation_id: parts[1],
         phone: parts[2],
         country,
         service,
         status: 'waiting'
       };
-
-      logger.info('SMS number acquired', {
-        activationId: result.activation_id,
-        phone: result.phone
-      });
-
-      return result;
     }
 
     if (response.data === 'NO_NUMBERS') {
       throw new Error('Nenhum número disponível no momento');
     }
-    if (response.data === 'BAD_KEY') {
-      throw new Error('Chave API inválida');
-    }
     throw new Error(`Erro ao comprar número: ${response.data}`);
   } catch (error) {
-    logger.error('Error getting SMS number', {
-      country,
-      service,
-      error: error.message
-    });
+    logger.error('Error getting SMS number', { error: error.message });
     throw error;
   }
 }
 
-/**
- * Verifica o status e obtém o código SMS
- */
 async function getStatus(activationId) {
   try {
     const response = await smsClient.get('/getStatus.php', {
@@ -122,55 +75,27 @@ async function getStatus(activationId) {
     }
     return { status: 'unknown', code: null };
   } catch (error) {
-    logger.error('Error getting SMS status', {
-      activationId,
-      error: error.message
-    });
+    logger.error('Error getting status', { error: error.message });
     throw error;
   }
 }
 
-/**
- * Define status da ativação
- */
-async function setStatus(activationId, status) {
-  try {
-    const response = await smsClient.get('/setStatus.php', {
-      params: { api_key: SMS_API_KEY, id: activationId, status }
-    });
-
-    logger.info('SMS status updated', { activationId, status });
-    return response.data === 'ACCESS_ACTIVATION';
-  } catch (error) {
-    logger.error('Error setting SMS status', {
-      activationId,
-      status,
-      error: error.message
-    });
-    throw error;
-  }
-}
-
-/**
- * Cancela uma ativação
- */
 async function cancelActivation(activationId) {
-  return setStatus(activationId, 8);
-}
-
-/**
- * Confirma recebimento do código
- */
-async function confirmSMS(activationId) {
-  return setStatus(activationId, 6);
+  try {
+    await smsClient.get('/setStatus.php', {
+      params: { api_key: SMS_API_KEY, id: activationId, status: 8 }
+    });
+    logger.info('SMS cancelled', { activationId });
+    return true;
+  } catch (error) {
+    logger.error('Error cancelling', { error: error.message });
+    throw error;
+  }
 }
 
 module.exports = {
   getBalance,
-  getPrice,
   getNumber,
   getStatus,
-  setStatus,
-  cancelActivation,
-  confirmSMS
+  cancelActivation
 };
