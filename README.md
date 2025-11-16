@@ -1,35 +1,54 @@
-# Bot Telegram de Venda de Créditos SMS e Seguidores
+# Bot Telegram de Venda de Créditos SMS e Seguidores (v2.0)
+
+[![CI/CD Status](https://github.com/popovidismarcoantonionista-lang/telegram-bot-sms-pix/workflows/ci.yml/badge.svg)](https://github.com/popovidismarcoantonionista-lang/telegram-bot-sms-pix/actions)
+[![Node.js Version](https://img.shields.io/badge/node.js-%3E%3D18.0.0-green)](https://nodejs.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Bot autônomo completo para venda de créditos SMS descartáveis (SMS-Activate) e seguidores (Apex Seguidores) com pagamento via PIX automático (PixIntegra).
 
 ## 🚀 Funcionalidades
 
-- ✅ Venda de créditos com 3 pacotes: Econômico (×1.7), Padrão (×2.2), Premium (×3.5)
-- ✅ Pagamento PIX automático via PixIntegra
-- ✅ Webhook de confirmação com validação HMAC
-- ✅ Compra de números SMS descartáveis via SMS-Activate
-- ✅ Compra de seguidores via API Apex Seguidores
-- ✅ Sistema de descontos progressivos
-- ✅ Polling automático de códigos SMS
-- ✅ Logs detalhados e idempotência
-- ✅ Retry automático
-- ✅ PostgreSQL ou MongoDB
+- ✅ **Venda de créditos** com 3 pacotes: Econômico (×1.7), Padrão (×2.2), Premium ×3.5)
+- ✅ **Pagamento PIX automático** via PixIntegra
+- ✅ **Webhook de confirmação** com validação HMAC
+- ✅ **Compra de números SMS** descartáveis via SMS-Activate
+- ✅ **Compra de seguidores** via API Apex Seguidores
+- ✅ **Sistema de descontos** progressivos
+- ✅ **Polling automático** de códigos SMS
+- ✅ **Logs detalhados** e idempotência
+- ✅ **Retry automático** em caso de falhas
+- ✅ PostgreSQL **ou** MongoDB
+- ✅ Arquitetura modular e escalável
+
+## 🆕 Ovo na versão 2.0
+
+- ✅ **Atualização de dependências** - Todas as pacotes atualizados
+- ✅ **Winston Logger** - Logs estruturados em JSON
+- ✅ **ESLint** - Análise de código automática
+- ✅ **Prettier** - Formatação automática de código
+- ✅ **Jest** - Testes unitários
+- ✅ **Docker Compose** - Containerização completa
+- ✅ **GitHub Actions** - CI/CD integrado
+- ✅ **Node-cache** - Cache para melhor performance
+- ✅ **Express-validator** - Validação de dados melhorada
 
 ## 📋 Pré-requisitos
 
-- Node.js >= 18.0.0
-- PostgreSQL 14+ ou MongoDB 5+
-- Telegram Bot Token
-- Conta PixIntegra
-- API Key SMS-Activate
-- API Key Apex Seguidores
+- **Node.js** >= 18.0.0
+- **PostgreSQL** 14+ ou **MongoDB** 5+
+- **Telegram Bot Token**
+- **PixIntegra Account**
+- **API Key SMS-Activate**
+- **API Key Apex Seguidores**
 
 ## 🔧 Instalação
 
+### Instalação Manual
+
 ```bash
 # Clone o repositório
-git clone https://github.com/seu-usuario/telegram-sms-bot.git
-cd telegram-sms-bot
+git clone https://github.com/popovidismarcoantonionista-lang/telegram-bot-sms-pix.git
+cd telegram-bot-sms-pix
 
 # Instale as dependências
 npm install
@@ -48,44 +67,48 @@ npm start
 npm run dev
 ```
 
+### Instalação com Docker
+
+```bash
+# Clone o repositório
+git clone https://github.com/popovidismarcoantonionista-lang/telegram-bot-sms-pix.git
+cd telegram-bot-sms-pix
+
+# Configure o .env
+cp .env.example .env
+# Edite o .env com suas credenciais
+
+# Inicie todos os containers
+docker-compose up -d
+
+# Verifique os logs
+docker-compose logs -f bot
+```
+
 ## 📦 Estrutura do Projeto
 
 ```
-telegram-sms-bot/
+telegram-bot-sms-pix/
 ├── src/
-│   ├── index.js              # Entry point
-│   ├── bot/
-│   │   ├── handlers/         # Handlers dos comandos
-│   │   ├── keyboards.js      # Teclados inline
-│   │   └── messages.js       # Mensagens de texto
-│   ├── api/
-│   │   ├── pixintegra.js     # Cliente PixIntegra
-│   │   ├── smsActivate.js    # Cliente SMS-Activate
-│   │   └── apexSeguidores.js # Cliente Apex Seguidores
-│   ├── database/
-│   │   ├── models/           # Modelos do banco
-│   │   └── migrations/       # Migrations
-│   ├── webhooks/
-│   │   ├── telegram.js       # Webhook Telegram
-│   │   └── pixintegra.js     # Webhook PixIntegra
-│   ├── services/
-│   │   ├── pricing.js        # Cálculo de preços
-│   │   ├── credits.js        # Gestão de créditos
-│   │   └── polling.js        # Polling SMS
-│   ├── middleware/
-│   │   ├── auth.js           # Autenticação JWT
-│   │   ├── hmac.js           # Validação HMAC
-│   │   └── idempotency.js    # Idempotência
-│   └── utils/
-│       ├── logger.js         # Winston logger
-│       ├── crypto.js         # Criptografia
-│       └── retry.js          # Retry logic
+│   ├── api/             # Clientes API
+│   ├── bot/              # Handlers do bot
+│   ├── database/         # Models e migrations
+│   ├── middleware/       # Middlewares
+│   ├── services/        # Serviços de negócio
+│   ├── utils/            # Utilitários
+│   └── webhooks/        # Webhooks
 ├── .env.example
+├── .eslintrc.json
+├── .prettierrc
+├── jest.config.js
+├── docker-compose.yml
+├── Dockerfile
 ├── package.json
-└── README.md
+├── README.md
+└── .github/workflows/ci.yml
 ```
 
-## 🎮 Comandos do Bot
+## 🎯 Comandos do Bot
 
 - `/start` - Inicia o bot e registra o usuário
 - `/comprar_creditos` - Compra de créditos (pacotes)
@@ -114,98 +137,26 @@ Preço Final = (Custo Base + Taxa PixIntegra + Taxa API) × Margem × (1 - Desco
 
 ## 🔐 Segurança
 
-- Tokens e chaves criptografadas via KMS
-- Validação HMAC nos webhooks
-- JWT para autenticação de endpoints
-- Idempotência em pagamentos
-- Rate limiting
-- Logs de auditoria
+- ✅ Tokens e chaves criptografadas via KMS
+- ✅ Validação HMAC nos webhooks
+- ✅ JWT para autenticação de endpoints
+- ✅ Idempotência em pagamentos
+- ✅ Rate limiting
+- ✅ Logs de auditoria
+- ✅ Helmet para segurança HTTP
 
-## 🗄️ Esquema do Banco de Dados
+## 🧪 Testes
 
-### PostgreSQL
+```bash
+# Executar todos os testes
+npm test
 
-```sql
--- Usuários
-CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    tg_id BIGINT UNIQUE NOT NULL,
-    username VARCHAR(255),
-    balance DECIMAL(10,2) DEFAULT 0,
-    tier VARCHAR(20) DEFAULT 'padrao',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+# Executar com coverage
+npm test -- --coverage
 
--- Pedidos
-CREATE TABLE orders (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id),
-    amount DECIMAL(10,2) NOT NULL,
-    status VARCHAR(50) NOT NULL,
-    pixintegra_charge_id VARCHAR(255),
-    tier VARCHAR(20),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Aluguéis de SMS
-CREATE TABLE sms_rents (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id),
-    number_id VARCHAR(255),
-    phone VARCHAR(50),
-    service VARCHAR(100),
-    status VARCHAR(50),
-    sms_code VARCHAR(20),
-    cost DECIMAL(10,2),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP
-);
-
--- Pedidos de Seguidores
-CREATE TABLE followers_orders (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(id),
-    platform VARCHAR(50),
-    quantity INTEGER,
-    target_url VARCHAR(500),
-    price DECIMAL(10,2),
-    status VARCHAR(50),
-    apex_order_id VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Logs
-CREATE TABLE logs (
-    id SERIAL PRIMARY KEY,
-    source VARCHAR(100),
-    level VARCHAR(20),
-    message TEXT,
-    payload JSONB,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Transações de Idempotência
-CREATE TABLE idempotency_keys (
-    id SERIAL PRIMARY KEY,
-    key VARCHAR(255) UNIQUE NOT NULL,
-    response JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP
-);
+# Executar testes em modo watch
+npm test -- --watch
 ```
-
-## 🔌 Endpoints da API
-
-### Webhooks
-- `POST /webhook/telegram` - Webhook do Telegram
-- `POST /webhook/pixintegra` - Confirmação de pagamento PixIntegra
-
-### API REST (Protegida com JWT)
-- `GET /api/v1/balance/:tg_id` - Consulta saldo
-- `GET /api/v1/orders/:tg_id` - Lista pedidos
-- `POST /api/v1/credits/add` - Adiciona créditos (admin)
 
 ## 📊 Monitoramento
 
@@ -240,8 +191,16 @@ curl -X POST "https://api.telegram.org/bot<TOKEN>/setWebhook" \
 
 ## 📝 Licença
 
-MIT License
+MIT License - Veja arquivo [LICENSE](LICENSE) para detalhes.
+
+## 📈 Contribuição
+
+Contribuições são bem-vindas! Abra uma **issue** ou **pull request**.
 
 ## 🤝 Suporte
 
-Para suporte, entre em contato via Telegram: @seu_usuario
+Para suporte, entre em contato via Telegram.
+
+---
+
+Desenvolvido com ❤️ por `popovidismarcoantonionista-lang`
