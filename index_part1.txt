@@ -1,0 +1,163 @@
+import TelegramBot from 'node-telegram-bot-api';
+import express from 'express';
+import dotenv from 'dotenv';
+import db from './database.js';
+import pix from './pix.js';
+import sms from './sms.js';
+import apex from './apex.js';
+import logger from './logger.js';
+import { mainMenu, smsMenu, seguidoresMenu, cancelMenu, messages, formatBalance } from './menu.js';
+
+dotenv.config();
+
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const WEBHOOK_URL = process.env.WEBHOOK_URL;
+const PORT = process.env.PORT || 3000;
+const MIN_DEPOSIT = parseFloat(process.env.MIN_DEPOSIT) || 1.00;
+
+// Inicializar bot
+const bot = new TelegramBot(BOT_TOKEN);
+
+// Estados temporários dos usuários
+const userStates = new Map();
+
+// Express para webhook
+const app = express();
+app.use(express.json());
+
+// ===== FUNÇÕES AUXILIARES =====
+
+function setState(userId, state, data = {}) {
+  userStates.set(userId, { state, data, timestamp: Date.now() });
+}
+
+function getState(userId) {
+  return userStates.get(userId) || null;
+}
+
+function clearState(userId) {
+  userStates.delete(userId);
+}
+
+function sendMessage(chatId, text, options = {}) {
+  return bot.sendMessage(chatId, text, {
+    parse_mode: 'Markdown',
+    ...options
+  });
+}
+
+// ===== REGISTRO DE USUÁRIO =====
+
+async function registerUser(msg) {
+  const userId = msg.from.id;
+  const username = msg.from.username || '';
+  const firstName = msg.from.first_name || 'Usuário';
+
+  let user = db.getUser(userId);
+
+  if (!user) {
+    db.createUser(userId, username, firstName);
+    logger.info('Novo usuário registrado', { userId, username });
+  }
+
+  return db.getUser(userId);
+}
+
+// ===== COMANDO /START =====
+
+bot.onText(/\/start/, async (msg) => {
+  try {
+    const user = await registerUser(msg);
+    await sendMessage(msg.chat.id, messages.welcome(user.first_name), mainMenu);
+    logger.info('Comando /start executado', { userId: user.telegram_id });
+  } catch (error) {
+    logger.error('Erro no /start', error);
+    await sendMessage(msg.chat.id, messages.error('Erro ao iniciar o bot.'));
+  }
+});
+
+// ===== COMANDO /SALDO =====
+
+bot.onText(/\/saldo/, async (msg) => {
+  try {
+    await registerUser(msg);
+    const userId = msg.from.id;
+    const balance = db.getUserBalance(userId);
+
+    await sendMessage(msg.chat.id, messages.balance(balance, userId));
+    logger.info('Comando /saldo executado', { userId, balance });
+  } catch (error) {
+    logger.error('Erro no /saldo', error);
+    await sendMessage(msg.chat.id, messages.error('Erro ao consultar saldo.'));
+  }
+});
+
+// ===== COMANDO /DEPOSITAR =====
+
+bot.onText(/\/depositar/, async (msg) => {
+  try {
+    await registerUser(msg);
+    const userId = msg.from.id;
+
+    setState(userId, 'awaiting_deposit_amount');
+    await sendMessage(msg.chat.id, messages.deposit(MIN_DEPOSIT), cancelMenu);
+
+    logger.info('Comando /depositar executado', { userId });
+  } catch (error) {
+    logger.error('Erro no /depositar', error);
+    await sendMessage(msg.chat.id, messages.error('Erro ao iniciar depósito.'));
+  }
+});
+
+// ===== COMANDO /SMS =====
+
+bot.onText(/\/sms/, async (msg) => {
+  try {
+    await registerUser(msg);
+    await sendMessage(msg.chat.id, messages.smsServices, smsMenu);
+    logger.info('Comando /sms executado', { userId: msg.from.id });
+  } catch (error) {
+    logger.error('Erro no /sms', error);
+    await sendMessage(msg.chat.id, messages.error('Erro ao abrir menu SMS.'));
+  }
+});
+
+// ===== COMANDO /SEGUIDORES =====
+
+bot.onText(/\/seguidores/, async (msg) => {
+  try {
+    await registerUser(msg);
+    await sendMessage(msg.chat.id, messages.seguidoresCategories, seguidoresMenu);
+    logger.info('Comando /seguidores executado', { userId: msg.from.id });
+  } catch (error) {
+    logger.error('Erro no /seguidores', error);
+    await sendMessage(msg.chat.id, messages.error('Erro ao abrir menu de seguidores.'));
+  }
+});
+
+// ===== COMANDO /SUPORTE =====
+
+bot.onText(/\/suporte/, async (msg) => {
+  try {
+    await sendMessage(msg.chat.id, messages.support);
+    logger.info('Comando /suporte executado', { userId: msg.from.id });
+  } catch (error) {
+    logger.error('Erro no /suporte', error);
+  }
+});
+
+// ===== COMANDO /HISTORICO =====
+
+bot.onText(/\/historico/, async (msg) => {
+  try {
+    await registerUser(msg);
+    const userId = msg.from.id;
+    const transactions = db.getTransactions(userId, 10);
+
+    await sendMessage(msg.chat.id, messages.history(transactions));
+    logger.info('Comando /historico executado', { userId });
+  } catch (error) {
+    logger.error('Erro no /historico', error);
+    await sendMessage(msg.chat.id, messages.error('Erro ao buscar histórico.'));
+  }
+});

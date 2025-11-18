@@ -1,0 +1,221 @@
+
+// ===== CALLBACK QUERIES (Botões Inline) =====
+
+bot.on('callback_query', async (query) => {
+  const userId = query.from.id;
+  const chatId = query.message.chat.id;
+  const data = query.data;
+
+  try {
+    await bot.answerCallbackQuery(query.id);
+
+    // ===== CANCELAR =====
+    if (data === 'cancel') {
+      clearState(userId);
+      await sendMessage(chatId, '❌ Operação cancelada.', mainMenu);
+      return;
+    }
+
+    // ===== VOLTAR =====
+    if (data === 'back_main') {
+      clearState(userId);
+      await sendMessage(chatId, '🏠 Menu principal', mainMenu);
+      return;
+    }
+
+    // ===== SMS - SELECIONAR SERVIÇO =====
+    if (data.startsWith('sms_')) {
+      const serviceCode = data.replace('sms_', '');
+      const services = sms.getPopularServices();
+      const service = services[serviceCode];
+
+      if (!service) {
+        return sendMessage(chatId, messages.error('Serviço não encontrado.'));
+      }
+
+      const balance = db.getUserBalance(userId);
+
+      if (balance < service.price) {
+        return sendMessage(chatId, messages.insufficientBalance(service.price, balance));
+      }
+
+      await sendMessage(chatId, `⏳ Comprando número ${service.name}...`);
+
+      // Comprar número
+      const result = await sms.buyNumber(serviceCode, 0);
+
+      if (!result.success) {
+        return sendMessage(chatId, messages.error(result.error));
+      }
+
+      // Debitar saldo
+      db.updateBalance(userId, service.price, 'subtract');
+      db.createTransaction(userId, 'purchase', -service.price, `SMS ${service.name}`, 'completed', result.activationId);
+      db.createSmsOrder(userId, result.activationId, result.phoneNumber, serviceCode, result.country, service.price);
+
+      await sendMessage(chatId, messages.smsWaiting(result.phoneNumber, service.name));
+
+      // Monitorar SMS
+      monitorSMS(userId, result.activationId, result.phoneNumber, chatId);
+
+      logger.transaction('purchase', userId, service.price, `SMS ${service.name}`);
+    }
+
+    // ===== SEGUIDORES - SELECIONAR CATEGORIA =====
+    if (data.startsWith('seg_')) {
+      const category = data.replace('seg_', '');
+      const categoryNames = {
+        'instagram': 'Instagram',
+        'tiktok': 'TikTok',
+        'youtube': 'YouTube',
+        'facebook': 'Facebook',
+        'twitter': 'Twitter',
+        'telegram': 'Telegram'
+      };
+
+      const categoryName = categoryNames[category];
+
+      await sendMessage(chatId, '⏳ Buscando serviços disponíveis...');
+
+      const result = await apex.getServicesByCategory(categoryName);
+
+      if (!result.success || result.services.length === 0) {
+        return sendMessage(chatId, messages.error(`Nenhum serviço disponível para ${categoryName}.`));
+      }
+
+      // Pegar primeiro serviço da categoria (mais popular)
+      const service = result.services[0];
+
+      setState(userId, 'awaiting_seguidores_link', { 
+        service, 
+        category: categoryName 
+      });
+
+      await sendMessage(chatId, messages.seguidoresLink(categoryName));
+    }
+
+  } catch (error) {
+    logger.error('Erro no callback query', error);
+    await sendMessage(chatId, messages.error());
+  }
+});
+
+// ===== MONITORAR SMS =====
+
+async function monitorSMS(userId, activationId, phoneNumber, chatId) {
+  const maxAttempts = 40; // 20 minutos (verificando a cada 30s)
+  let attempts = 0;
+
+  const interval = setInterval(async () => {
+    attempts++;
+
+    try {
+      const result = await sms.getStatus(activationId);
+
+      if (result.status === 'received' && result.code) {
+        clearInterval(interval);
+
+        // Atualizar no banco
+        db.updateSmsOrder(activationId, 'completed', result.code);
+
+        await sendMessage(chatId, messages.smsReceived(phoneNumber, result.code), mainMenu);
+
+        // Confirmar código
+        await sms.confirmCode(activationId);
+
+        logger.success('SMS recebido', { userId, activationId, code: result.code });
+      }
+
+      if (attempts >= maxAttempts) {
+        clearInterval(interval);
+
+        // Cancelar ativação
+        await sms.cancelActivation(activationId);
+        db.updateSmsOrder(activationId, 'cancelled');
+
+        await sendMessage(chatId, '⏰ Tempo esgotado. O número foi cancelado e seu saldo será reembolsado.', mainMenu);
+
+        logger.warn('SMS não recebido - timeout', { userId, activationId });
+      }
+
+    } catch (error) {
+      logger.error('Erro ao monitorar SMS', { userId, activationId, error: error.message });
+    }
+
+  }, 30000); // 30 segundos
+}
+
+// ===== WEBHOOK =====
+
+app.post(`/webhook/${BOT_TOKEN}`, (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// ===== ROTA DE SAÚDE =====
+
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    bot: 'Telegram Bot PIX + SMS + Seguidores',
+    timestamp: new Date().toISOString()
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', uptime: process.uptime() });
+});
+
+// ===== INICIALIZAR SERVIDOR =====
+
+async function start() {
+  try {
+    // Se houver WEBHOOK_URL, configurar webhook
+    if (WEBHOOK_URL) {
+      const webhookPath = `/webhook/${BOT_TOKEN}`;
+      const fullWebhookUrl = `${WEBHOOK_URL}${webhookPath}`;
+
+      await bot.setWebHook(fullWebhookUrl);
+      logger.success('Webhook configurado', { url: fullWebhookUrl });
+
+      app.listen(PORT, () => {
+        logger.success('Bot iniciado com webhook', { port: PORT });
+        console.log(`🤖 Bot rodando em modo webhook na porta ${PORT}`);
+        console.log(`🌐 Webhook URL: ${fullWebhookUrl}`);
+      });
+
+    } else {
+      // Modo polling (desenvolvimento local)
+      await bot.deleteWebHook();
+      bot.startPolling();
+
+      logger.success('Bot iniciado com polling');
+      console.log('🤖 Bot rodando em modo polling (desenvolvimento)');
+
+      app.listen(PORT, () => {
+        console.log(`🌐 Servidor rodando na porta ${PORT}`);
+      });
+    }
+
+  } catch (error) {
+    logger.error('Erro ao iniciar bot', error);
+    console.error('❌ Erro ao iniciar:', error);
+    process.exit(1);
+  }
+}
+
+// ===== TRATAMENTO DE ERROS =====
+
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception', error);
+  console.error('Uncaught Exception:', error);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection', { reason, promise });
+  console.error('Unhandled Rejection:', reason);
+});
+
+// ===== INICIAR =====
+
+start();

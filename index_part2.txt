@@ -1,0 +1,179 @@
+
+// ===== HANDLER DE MENSAGENS DE TEXTO =====
+
+bot.on('message', async (msg) => {
+  if (msg.text && msg.text.startsWith('/')) return; // Ignorar comandos
+
+  try {
+    const userId = msg.from.id;
+    const state = getState(userId);
+
+    if (!state) {
+      // Atalhos do menu
+      if (msg.text === '💰 Depositar') {
+        return bot.emit('text', { ...msg, text: '/depositar' });
+      }
+      if (msg.text === '💳 Saldo') {
+        return bot.emit('text', { ...msg, text: '/saldo' });
+      }
+      if (msg.text === '📱 SMS Descartável') {
+        return bot.emit('text', { ...msg, text: '/sms' });
+      }
+      if (msg.text === '👥 Seguidores') {
+        return bot.emit('text', { ...msg, text: '/seguidores' });
+      }
+      if (msg.text === '📊 Histórico') {
+        return bot.emit('text', { ...msg, text: '/historico' });
+      }
+      if (msg.text === '💬 Suporte') {
+        return bot.emit('text', { ...msg, text: '/suporte' });
+      }
+      return;
+    }
+
+    // ===== PROCESSAR VALOR DO DEPÓSITO =====
+    if (state.state === 'awaiting_deposit_amount') {
+      const amount = parseFloat(msg.text.replace(',', '.'));
+
+      if (isNaN(amount) || amount < MIN_DEPOSIT) {
+        return sendMessage(msg.chat.id, 
+          `❌ Valor inválido! O depósito mínimo é ${formatBalance(MIN_DEPOSIT)}`
+        );
+      }
+
+      await sendMessage(msg.chat.id, '⏳ Gerando cobrança PIX...');
+
+      const result = await pix.createCharge(amount, `Depósito - User ${userId}`);
+
+      if (!result.success) {
+        clearState(userId);
+        return sendMessage(msg.chat.id, messages.error('Erro ao gerar cobrança PIX. Tente novamente.'));
+      }
+
+      // Salvar no banco
+      db.createPixDeposit(userId, result.txid, amount, result.qrCode, result.qrCodeImage);
+      db.createTransaction(userId, 'deposit', amount, 'Depósito PIX', 'pending', result.txid);
+
+      // Enviar QR Code
+      await bot.sendPhoto(msg.chat.id, result.qrCodeImage, {
+        caption: messages.depositCreated(amount, result.qrCode),
+        parse_mode: 'Markdown'
+      });
+
+      // Monitorar pagamento
+      monitorPayment(userId, result.txid, msg.chat.id);
+
+      clearState(userId);
+      logger.info('Depósito criado', { userId, amount, txid: result.txid });
+    }
+
+    // ===== PROCESSAR LINK PARA SEGUIDORES =====
+    if (state.state === 'awaiting_seguidores_link') {
+      const link = msg.text.trim();
+
+      if (!link.startsWith('http')) {
+        return sendMessage(msg.chat.id, '❌ Link inválido! Envie um link completo começando com http:// ou https://');
+      }
+
+      setState(userId, 'awaiting_seguidores_quantity', { 
+        ...state.data, 
+        link 
+      });
+
+      await sendMessage(msg.chat.id, messages.seguidoresQuantity(state.data.service));
+    }
+
+    // ===== PROCESSAR QUANTIDADE DE SEGUIDORES =====
+    if (state.state === 'awaiting_seguidores_quantity') {
+      const quantity = parseInt(msg.text);
+      const service = state.data.service;
+
+      if (isNaN(quantity) || quantity < service.min || quantity > service.max) {
+        return sendMessage(msg.chat.id, 
+          `❌ Quantidade inválida! Mínimo: ${service.min} | Máximo: ${service.max.toLocaleString('pt-BR')}`
+        );
+      }
+
+      const price = apex.calculatePrice(service.rate, quantity);
+      const balance = db.getUserBalance(userId);
+
+      if (balance < price) {
+        clearState(userId);
+        return sendMessage(msg.chat.id, messages.insufficientBalance(price, balance));
+      }
+
+      // Criar pedido
+      await sendMessage(msg.chat.id, '⏳ Criando pedido...');
+
+      const result = await apex.createOrder(service.id, state.data.link, quantity);
+
+      if (!result.success) {
+        clearState(userId);
+        return sendMessage(msg.chat.id, messages.error(result.error));
+      }
+
+      // Debitar saldo
+      db.updateBalance(userId, price, 'subtract');
+      db.createTransaction(userId, 'purchase', -price, `Seguidores ${service.category}`, 'completed', result.orderId);
+      db.createApexOrder(userId, result.orderId, service.id, state.data.link, quantity, price);
+
+      await sendMessage(msg.chat.id, messages.seguidoresSuccess(result.orderId, quantity), mainMenu);
+
+      clearState(userId);
+      logger.transaction('purchase', userId, price, `Seguidores - ${service.name}`);
+    }
+
+  } catch (error) {
+    logger.error('Erro no handler de mensagens', error);
+    await sendMessage(msg.chat.id, messages.error());
+  }
+});
+
+// ===== MONITORAR PAGAMENTO PIX =====
+
+async function monitorPayment(userId, txid, chatId) {
+  const maxAttempts = 60; // 30 minutos (verificando a cada 30s)
+  let attempts = 0;
+
+  const interval = setInterval(async () => {
+    attempts++;
+
+    try {
+      const result = await pix.checkPayment(txid);
+
+      if (result.isPaid) {
+        clearInterval(interval);
+
+        const deposit = db.getPixDeposit(txid);
+
+        if (deposit && deposit.status === 'pending') {
+          // Adicionar saldo
+          db.updateBalance(userId, deposit.amount, 'add');
+          db.updatePixDepositStatus(txid, 'paid', new Date().toISOString());
+
+          // Atualizar transação
+          const transactions = db.getTransactions(userId, 50);
+          const pendingTx = transactions.find(t => t.reference === txid && t.status === 'pending');
+          if (pendingTx) {
+            db.createTransaction(userId, 'deposit', deposit.amount, 'Depósito PIX confirmado', 'completed', txid);
+          }
+
+          const newBalance = db.getUserBalance(userId);
+
+          await sendMessage(chatId, messages.depositConfirmed(deposit.amount, newBalance), mainMenu);
+
+          logger.success('Pagamento confirmado', { userId, txid, amount: deposit.amount });
+        }
+      }
+
+      if (attempts >= maxAttempts) {
+        clearInterval(interval);
+        logger.warn('Monitoramento de pagamento expirado', { userId, txid });
+      }
+
+    } catch (error) {
+      logger.error('Erro ao monitorar pagamento', { userId, txid, error: error.message });
+    }
+
+  }, 30000); // 30 segundos
+}
